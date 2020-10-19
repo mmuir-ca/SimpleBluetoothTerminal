@@ -17,6 +17,7 @@ import android.text.Spannable;
 import android.text.SpannableStringBuilder;
 import android.text.method.ScrollingMovementMethod;
 import android.text.style.ForegroundColorSpan;
+import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.Menu;
 import android.view.MenuInflater;
@@ -26,6 +27,10 @@ import android.view.ViewGroup;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.nio.ShortBuffer;
+import java.util.Arrays;
 import java.util.Date;
 
 public class TerminalFragment extends Fragment implements ServiceConnection, SerialListener {
@@ -34,6 +39,9 @@ public class TerminalFragment extends Fragment implements ServiceConnection, Ser
 
     private String deviceAddress;
     private String newline = "\r\n";
+    private Boolean isBytes = false;
+    private int count = 0;
+    private int nInt = 0;
 
     private TextView receiveText;
 
@@ -189,6 +197,12 @@ public class TerminalFragment extends Fragment implements ServiceConnection, Ser
             Toast.makeText(getActivity(), "not connected", Toast.LENGTH_SHORT).show();
             return;
         }
+        if (str.contains("#N")){
+            isBytes = false;
+        }
+        if (str.contains("#M")){
+            isBytes = true;
+        }
         try {
             SpannableStringBuilder spn = new SpannableStringBuilder(str+'\n');
             spn.setSpan(new ForegroundColorSpan(getResources().getColor(R.color.colorSendText)), 0, spn.length(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
@@ -200,8 +214,43 @@ public class TerminalFragment extends Fragment implements ServiceConnection, Ser
         }
     }
 
+    /**
+     * Converts the short value into mVolts
+     *
+     * @param data data value
+     * @return mVolt value
+     */
+    public static int dataTomVolt(short data) {
+        return (int) Math.round((5000.0 * data / 32767.0));// convert to mV
+    }
+
     private void receive(byte[] data) {
-        receiveText.append(new String(data));
+        System.out.println(nInt++ + ":" + data.length);
+        if (count++ > 10){
+            receiveText.setText("**Reset-10-packet**");
+            count = 0;
+        }
+        if(isBytes){
+            int switching = 0;
+            ShortBuffer dataShort = ByteBuffer.wrap(Arrays.copyOfRange(data, switching, data.length))
+                    .order(ByteOrder.LITTLE_ENDIAN).asShortBuffer();
+            try {
+
+                float[] dataAsFloat = new float[(data.length / 2) + switching];
+                for (int x = 0; x < data.length /2 - switching; x++){
+                    try {
+                        receiveText.append(dataTomVolt(dataShort.get(x)) + ",");
+                    } catch (IndexOutOfBoundsException e){
+                        Log.e("dataConvert", "data_length: " + data.length + ", data_length/2: " + data.length/2  + "%3$d, x: " + x);
+                    }
+                }
+            } catch (NegativeArraySizeException e) {
+                Log.e("dataConvert", "Negative array size exception.");
+            }
+        } else {
+            String newData = new String(data);
+            receiveText.append(newData);
+        }
     }
 
     private void status(String str) {
